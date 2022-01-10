@@ -1,5 +1,6 @@
-use thiserror::Error;
+use mod_exp::mod_exp;
 use std::ops;
+use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum FiniteSetError {
@@ -27,11 +28,21 @@ impl FieldElement {
         if num < 0 {
             return Err(FiniteSetError::NumberLessThanZero(num));
         }
-        Ok(FieldElement { num, prime})
+        Ok(FieldElement { num, prime })
+    }
+
+    pub fn pow(self, exp: i64) -> Self {
+        let n = exp % (self.prime - 1);
+        let n = if n < 0 { n + (self.prime - 1) } else { n };
+        let num = mod_exp(self.num, n, self.prime);
+        FieldElement {
+            num: if num < 0 { num + self.prime } else { num },
+            prime: self.prime,
+        }
     }
 }
 
-impl ops::Add<FieldElement> for FieldElement{
+impl ops::Add<FieldElement> for FieldElement {
     type Output = Result<Self>;
 
     fn add(self, other: Self) -> Result<Self> {
@@ -40,6 +51,58 @@ impl ops::Add<FieldElement> for FieldElement{
         }
         Ok(FieldElement {
             num: (self.num + other.num) % self.prime,
+            prime: self.prime,
+        })
+    }
+}
+
+impl ops::Sub<FieldElement> for FieldElement {
+    type Output = Result<Self>;
+
+    fn sub(self, other: Self) -> Result<Self> {
+        if self.prime != other.prime {
+            return Err(FiniteSetError::MisMatchedPrimes(self.prime, other.prime));
+        }
+
+        Ok(FieldElement {
+            num: if self.num < other.num {
+                (self.num - other.num) % self.prime + self.prime
+            } else {
+                (self.num - other.num) % self.prime
+            },
+            prime: self.prime,
+        })
+    }
+}
+
+impl ops::Mul<FieldElement> for FieldElement {
+    type Output = Result<Self>;
+
+    fn mul(self, other: Self) -> Result<Self> {
+        if self.prime != other.prime {
+            return Err(FiniteSetError::MisMatchedPrimes(self.prime, other.prime));
+        }
+        let prod = self.num * other.num;
+        Ok(FieldElement {
+            num: if prod < 0 {
+                prod % self.prime + self.prime
+            } else {
+                prod % self.prime
+            },
+            prime: self.prime,
+        })
+    }
+}
+
+impl ops::Div<FieldElement> for FieldElement {
+    type Output = Result<Self>;
+
+    fn div(self, other: Self) -> Result<Self> {
+        if self.prime != other.prime {
+            return Err(FiniteSetError::MisMatchedPrimes(self.prime, other.prime));
+        }
+        Ok(FieldElement {
+            num: self.num * other.pow(self.prime - 2).num % self.prime,
             prime: self.prime,
         })
     }
@@ -72,16 +135,67 @@ mod tests {
     }
 
     #[test]
-    fn test_add() {
+    fn test_field_element_add() {
         let a = FieldElement::new(2, 31).unwrap();
         let b = FieldElement::new(15, 31).unwrap();
-        assert_eq!((a + b).unwrap(), FieldElement{num:17, prime: 31});
+        assert_eq!((a + b).unwrap(), FieldElement { num: 17, prime: 31 });
         let a = FieldElement::new(17, 31).unwrap();
         let b = FieldElement::new(21, 31).unwrap();
-        assert_eq!((a + b).unwrap(), FieldElement{num:7, prime: 31});
-                let a = FieldElement::new(17, 31).unwrap();
+        assert_eq!((a + b).unwrap(), FieldElement { num: 7, prime: 31 });
+        let a = FieldElement::new(17, 31).unwrap();
         let b = FieldElement::new(21, 37).unwrap();
-        let mis_match_primes_error = (a+b).unwrap_err();
-        assert_eq!(mis_match_primes_error, FiniteSetError::MisMatchedPrimes(31,37));
+        let mis_match_primes_error = (a + b).unwrap_err();
+        assert_eq!(
+            mis_match_primes_error,
+            FiniteSetError::MisMatchedPrimes(31, 37)
+        );
+    }
+
+    #[test]
+    fn test_field_element_sub() {
+        let a = FieldElement::new(29, 31).unwrap();
+        let b = FieldElement::new(4, 31).unwrap();
+        assert_eq!((a - b).unwrap(), FieldElement { num: 25, prime: 31 });
+        let a = FieldElement::new(15, 31).unwrap();
+        let b = FieldElement::new(30, 31).unwrap();
+        assert_eq!((a - b).unwrap(), FieldElement { num: 16, prime: 31 });
+        let a = FieldElement::new(17, 31).unwrap();
+        let b = FieldElement::new(21, 37).unwrap();
+        let mis_match_primes_error = (a - b).unwrap_err();
+        assert_eq!(
+            mis_match_primes_error,
+            FiniteSetError::MisMatchedPrimes(31, 37)
+        );
+    }
+
+    #[test]
+    fn test_field_element_mul() {
+        let a = FieldElement::new(24, 31).unwrap();
+        let b = FieldElement::new(19, 31).unwrap();
+        assert_eq!((a * b).unwrap(), FieldElement { num: 22, prime: 31 });
+    }
+
+    #[test]
+    fn test_field_element_pow() {
+        let a = FieldElement::new(17, 31).unwrap();
+        assert_eq!(a.pow(3), FieldElement { num: 15, prime: 31 });
+        let a = FieldElement::new(5, 31).unwrap();
+        let b = FieldElement::new(18, 31).unwrap();
+        assert_eq!((a.pow(5) * b).unwrap(), FieldElement { num: 16, prime: 31 });
+    }
+
+    #[test]
+    fn test_field_element_div() {
+        let a = FieldElement::new(3, 31).unwrap();
+        let b = FieldElement::new(24, 31).unwrap();
+        assert_eq!((a / b).unwrap(), FieldElement { num: 4, prime: 31 });
+        let a = FieldElement::new(17, 31).unwrap();
+        assert_eq!(a.pow(-3), FieldElement { num: 29, prime: 31 });
+        let a = FieldElement::new(4, 31).unwrap();
+        let b = FieldElement::new(11, 31).unwrap();
+        assert_eq!(
+            (a.pow(-4) * b).unwrap(),
+            FieldElement { num: 13, prime: 31 }
+        );
     }
 }

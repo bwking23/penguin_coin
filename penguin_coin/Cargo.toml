@@ -12,3 +12,4 @@ test = true
 [dependencies]
 clap = { version = "3.0.1", features = ["derive"] }
 thiserror = "1.0.30"
+mod_exp = "1.0.1"
